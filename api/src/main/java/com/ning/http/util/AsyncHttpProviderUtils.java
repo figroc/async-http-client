@@ -12,6 +12,7 @@
  */
 package com.ning.http.util;
 
+import com.ning.http.client.AsyncHttpClientConfig;
 import com.ning.http.client.AsyncHttpProvider;
 import com.ning.http.client.ByteArrayPart;
 import com.ning.http.client.Cookie;
@@ -466,10 +467,11 @@ public class AsyncHttpProviderUtils {
         sb.append((char) SEMICOLON);
     }
 
-    public static String constructUserAgent(Class<? extends AsyncHttpProvider> httpProvider) {
-        StringBuffer b = new StringBuffer("AsyncHttpClient/1.0")
-                .append(" ")
-                .append("(")
+    public static String constructUserAgent(Class<? extends AsyncHttpProvider> httpProvider,
+                                            AsyncHttpClientConfig config) {
+        return new StringBuffer(config.getUserAgent())
+                .append(' ')
+                .append('(')
                 .append(httpProvider.getSimpleName())
                 .append(" - ")
                 .append(System.getProperty("os.name"))
@@ -479,8 +481,7 @@ public class AsyncHttpProviderUtils {
                 .append(System.getProperty("java.version"))
                 .append(" - ")
                 .append(Runtime.getRuntime().availableProcessors())
-                .append(" core(s))");
-        return b.toString();
+                .append(" core(s))").toString();
     }
 
     public static String parseCharset(String contentType) {
@@ -504,7 +505,7 @@ public class AsyncHttpProviderUtils {
 
     public static Cookie parseCookie(String value) {
         String[] fields = value.split(";\\s*");
-        String[] cookie = fields[0].split("=");
+        String[] cookie = fields[0].split("=", 2);
         String cookieName = cookie[0];
         String cookieValue = (cookie.length == 1) ? null : cookie[1];
 
@@ -556,12 +557,14 @@ public class AsyncHttpProviderUtils {
         return new Cookie(domain, cookieName, cookieValue, path, maxAge, secure);
     }
 
-    private static int convertExpireField(String timestring) throws Exception {
+    public static int convertExpireField(String timestring) throws Exception {
         Exception exception = null;
+        String trimmedTimeString = removeQuote(timestring.trim());
+        long now = System.currentTimeMillis();
         for (SimpleDateFormat sdf : simpleDateFormat.get()) {
             try {
-                long expire = sdf.parse(removeQuote(timestring.trim())).getTime();
-                return (int) ((expire - System.currentTimeMillis()) / 1000);
+                long expire = sdf.parse(trimmedTimeString).getTime();
+                return (int) ((expire - now) / 1000);
             } catch (ParseException e) {
                 exception = e;
             } catch (NumberFormatException e) {

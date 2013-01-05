@@ -45,6 +45,7 @@ import com.ning.http.client.generators.InputStreamBodyGenerator;
 import com.ning.http.client.listener.TransferCompletionHandler;
 import com.ning.http.client.ntlm.NTLMEngine;
 import com.ning.http.client.ntlm.NTLMEngineException;
+import com.ning.http.client.providers.netty.FeedableBodyGenerator.FeedListener;
 import com.ning.http.client.providers.netty.spnego.SpnegoEngine;
 import com.ning.http.client.websocket.WebSocketUpgradeHandler;
 import com.ning.http.multipart.MultipartBody;
@@ -145,7 +146,7 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
 
     private final static Logger log = LoggerFactory.getLogger(NettyAsyncHttpProvider.class);
     private final static Charset UTF8 = Charset.forName("UTF-8");
-    
+
     private final ClientBootstrap plainBootstrap;
     private final ClientBootstrap secureBootstrap;
     private final ClientBootstrap webSocketBootstrap;
@@ -488,6 +489,14 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
                             writeFuture = channel.write(bodyFileRegion);
                         } else {
                             BodyChunkedInput bodyChunkedInput = new BodyChunkedInput(body);
+                            BodyGenerator bg = future.getRequest().getBodyGenerator();
+                                if (bg instanceof FeedableBodyGenerator) {
+                                    ((FeedableBodyGenerator)bg).setListener(new FeedListener() {
+                                        @Override public void onContentAdded() {
+                                            channel.getPipeline().get(ChunkedWriteHandler.class).resumeTransfer();
+                                        }
+                                    });
+                                }
                             writeFuture = channel.write(bodyChunkedInput);
                         }
 
@@ -645,8 +654,8 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
                     break;
                 case NTLM:
                     try {
-                        nettyRequest.setHeader(HttpHeaders.Names.AUTHORIZATION,
-                                ntlmEngine.generateType1Msg("NTLM " + domain, authHost));
+                        String msg = ntlmEngine.generateType1Msg("NTLM " + domain, authHost);
+                        nettyRequest.setHeader(HttpHeaders.Names.AUTHORIZATION, "NTLM " + msg);
                     } catch (NTLMEngineException e) {
                         IOException ie = new IOException();
                         ie.initCause(e);
@@ -715,7 +724,9 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
         } else if (config.getUserAgent() != null) {
             nettyRequest.setHeader("User-Agent", config.getUserAgent());
         } else {
-            nettyRequest.setHeader("User-Agent", AsyncHttpProviderUtils.constructUserAgent(NettyAsyncHttpProvider.class));
+            nettyRequest.setHeader("User-Agent",
+                         AsyncHttpProviderUtils.constructUserAgent(NettyAsyncHttpProvider.class,
+                                                                   config));
         }
 
         if (!m.equals(HttpMethod.CONNECT)) {
@@ -1413,6 +1424,7 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
         }
 
         future.setState(NettyResponseFuture.STATE.RECONNECTED);
+        future.getAndSetStatusReceived(false);
 
         log.debug("Trying to recover request {}\n", future.getNettyRequest());
 
@@ -1985,7 +1997,7 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
                 String location = response.getHeader(HttpHeaders.Names.LOCATION);
                 URI uri = AsyncHttpProviderUtils.getRedirectUri(future.getURI(), location);
                 boolean stripQueryString = config.isRemoveQueryParamOnRedirect();
-                if (!uri.toString().equalsIgnoreCase(future.getURI().toString())) {
+                if (!uri.toString().equals(future.getURI().toString())) {
                     final RequestBuilder nBuilder = stripQueryString ?
                             new RequestBuilder(future.getRequest()).setQueryParameters(null)
                             : new RequestBuilder(future.getRequest());
@@ -2069,7 +2081,7 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
                     int statusCode = response.getStatus().getCode();
 
                     String ka = response.getHeader(HttpHeaders.Names.CONNECTION);
-                    future.setKeepAlive(ka == null || ka.toLowerCase().equals("keep-alive"));
+                    future.setKeepAlive(ka == null || ! ka.toLowerCase().equals("close"));
 
                     List<String> wwwAuth = getAuthorizationToken(response.getHeaders(), HttpHeaders.Names.WWW_AUTHENTICATE);
                     Realm realm = request.getRealm() != null ? request.getRealm() : config.getRealm();
@@ -2460,4 +2472,3 @@ public class NettyAsyncHttpProvider extends SimpleChannelUpstreamHandler impleme
         return isSecure(uri.getScheme());
     }
 }
-

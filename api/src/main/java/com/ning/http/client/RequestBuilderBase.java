@@ -75,8 +75,9 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
         public RequestImpl(Request prototype) {
             if (prototype != null) {
                 this.method = prototype.getMethod();
-                int pos = prototype.getUrl().indexOf("?");
-                this.url = pos > 0 ? prototype.getUrl().substring(0, pos) : prototype.getUrl();
+                String prototypeUrl = prototype.getUrl();
+                int pos = prototypeUrl.indexOf("?");
+                this.url = pos > 0 ? prototypeUrl.substring(0, pos) : prototypeUrl;
                 this.address = prototype.getInetAddress();
                 this.localAddress = prototype.getLocalAddress();
                 this.headers = new FluentCaseInsensitiveStringsMap(prototype.getHeaders());
@@ -292,11 +293,23 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
 
             sb.append("\t");
             sb.append(method);
-            for (String name : headers.keySet()) {
-                sb.append("\t");
-                sb.append(name);
-                sb.append(":");
-                sb.append(headers.getJoinedValue(name, ", "));
+            sb.append("\theaders:");
+            if (headers != null) {
+                for (String name : headers.keySet()) {
+                    sb.append("\t");
+                    sb.append(name);
+                    sb.append(":");
+                    sb.append(headers.getJoinedValue(name, ", "));
+                }
+            }
+            sb.append("\tparams:");
+            if (params != null) {
+                for (String name : params.keySet()) {
+                    sb.append("\t");
+                    sb.append(name);
+                    sb.append(":");
+                    sb.append(params.getJoinedValue(name, ", "));
+                }
             }
 
             return sb.toString();
@@ -446,8 +459,8 @@ public abstract class RequestBuilderBase<T extends RequestBuilderBase<T>> {
     }
 
     private void checkIfBodyAllowed() {
-        if ("GET".equals(request.method) || "HEAD".equals(request.method)) {
-            throw new IllegalArgumentException("Can NOT set Body on HTTP Request Method GET nor HEAD.");
+        if ("HEAD".equals(request.method)) {
+            throw new IllegalArgumentException("Can NOT set Body on HTTP Request Method HEAD.");
         }
     }
 
